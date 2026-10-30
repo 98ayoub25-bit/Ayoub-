@@ -1,0 +1,145 @@
+// pubspec.yaml -> dependencies:  http: ^1.2.0
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+const apiKey = 'ضع_مفتاح_TMDB_هنا'; // https://www.themoviedb.org/settings/api
+const base = 'https://api.themoviedb.org/3';
+const imgBase = 'https://image.tmdb.org/t/p/w500';
+
+void main() => runApp(const App());
+
+class App extends StatelessWidget {
+  const App({super.key});
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'أفلامي',
+        theme: ThemeData.dark(useMaterial3: true),
+        builder: (c, w) =>
+            Directionality(textDirection: TextDirection.rtl, child: w!),
+        home: const Home(),
+      );
+}
+
+Future<List<dynamic>> fetch(String path, [String query = '']) async {
+  final url = Uri.parse(
+      '$base$path?api_key=$apiKey&language=ar&$query');
+  final res = await http.get(url);
+  if (res.statusCode != 200) throw Exception('خطأ ${res.statusCode}');
+  return jsonDecode(res.body)['results'] as List<dynamic>;
+}
+
+class Home extends StatelessWidget {
+  const Home({super.key});
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('أفلامي'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () => showSearch(
+                    context: context, delegate: Search()),
+              ),
+            ],
+            bottom: const TabBar(
+                tabs: [Tab(text: 'أفلام'), Tab(text: 'مسلسلات')]),
+          ),
+          body: const TabBarView(children: [
+            Grid(path: '/trending/movie/week', type: 'movie'),
+            Grid(path: '/trending/tv/week', type: 'tv'),
+          ]),
+        ),
+      );
+}
+
+class Grid extends StatelessWidget {
+  final String path, type;
+  final String query;
+  const Grid({super.key, required this.path, required this.type, this.query = ''});
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<dynamic>>(
+        future: fetch(path, query),
+        builder: (c, s) {
+          if (s.hasError) return Center(child: Text('${s.error}'));
+          if (!s.hasData) return const Center(child: CircularProgressIndicator());
+          final items = s.data!.where((e) => e['poster_path'] != null).toList();
+          return GridView.builder(
+            padding: const EdgeInsets.all(8),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2, childAspectRatio: 0.62,
+                crossAxisSpacing: 8, mainAxisSpacing: 8),
+            itemCount: items.length,
+            itemBuilder: (c, i) {
+              final m = items[i];
+              return GestureDetector(
+                onTap: () => Navigator.push(c,
+                    MaterialPageRoute(builder: (_) => Details(m))),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network('$imgBase${m['poster_path']}',
+                      fit: BoxFit.cover),
+                ),
+              );
+            },
+          );
+        },
+      );
+}
+
+class Details extends StatelessWidget {
+  final Map m;
+  const Details(this.m, {super.key});
+  @override
+  Widget build(BuildContext context) {
+    final title = m['title'] ?? m['name'] ?? '';
+    final date = m['release_date'] ?? m['first_air_date'] ?? '';
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ListView(children: [
+        if (m['backdrop_path'] != null)
+          Image.network('$imgBase${m['backdrop_path']}'),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title,
+                style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.star, color: Colors.amber, size: 20),
+              Text(' ${(m['vote_average'] ?? 0).toStringAsFixed(1)}   •   $date'),
+            ]),
+            const SizedBox(height: 16),
+            Text(m['overview'] == '' ? 'لا يوجد وصف.' : m['overview'],
+                style: const TextStyle(height: 1.6)),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class Search extends SearchDelegate {
+  @override
+  String get searchFieldLabel => 'ابحث عن فيلم أو مسلسل';
+  @override
+  List<Widget> buildActions(BuildContext c) =>
+      [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
+  @override
+  Widget buildLeading(BuildContext c) => IconButton(
+      icon: const Icon(Icons.arrow_back), onPressed: () => close(c, null));
+  @override
+  Widget buildSuggestions(BuildContext c) => const SizedBox();
+  @override
+  Widget buildResults(BuildContext c) => query.trim().isEmpty
+      ? const SizedBox()
+      : Grid(
+          key: ValueKey(query),
+          path: '/search/multi',
+          type: 'multi',
+          query: 'query=${Uri.encodeComponent(query)}');
+}
